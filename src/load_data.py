@@ -2,7 +2,7 @@ from langchain_community.document_loaders import DirectoryLoader
 
 
 def main():
-    data_path = "../data/AIDL"
+    data_path = "../../Personal-Cheat-Sheets"
     loader = DirectoryLoader(
         data_path,
         glob="**/*.md",
@@ -11,8 +11,6 @@ def main():
     docs = loader.load()
 
     print(f"loaded {len(docs)} documents")
-    print(docs[0].page_content)
-    print(docs[0].metadata)
 
 
 if __name__ == "__main__":
