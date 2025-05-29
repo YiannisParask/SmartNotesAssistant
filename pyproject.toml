@@ -13,4 +13,5 @@ dependencies = [
     "transformers",
     "unstructured",
     "unstructured[md]",
+    "sentence_transformers",
 ]
