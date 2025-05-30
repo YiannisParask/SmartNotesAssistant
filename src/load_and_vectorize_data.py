@@ -14,10 +14,8 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def load_data(data_path: str) -> list:
     """
     Load documents from the specified directory and split them into chunks.
-
     Args:
         data_path (str): Path to the directory containing markdown files.
-
     Returns:
         list: List of document chunks.
     """
@@ -45,10 +43,10 @@ def download_encoder() -> tuple:
     """
     Download and initialize the SentenceTransformer model.
     Returns:
-        SentenceTransformer: Initialized SentenceTransformer model.
+        tuple: A tuple containing the encoder model and its embedding dimension.
     """
     model_name: str = "BAAI/bge-large-en-v1.5"
-    encoder = SentenceTransformer(model_name, device=DEVICE)
+    encoder = SentenceTransformer(model_name, device=DEVICE)  # type: ignore
 
     # Get the model parameters and save for later.
     embedding_dim = encoder.get_sentence_embedding_dimension()
@@ -61,9 +59,19 @@ def download_encoder() -> tuple:
     return encoder, embedding_dim
 
 
-def save_to_milvus(embedding_dim, dict_list) -> None:
-    mc = MilvusClient("local_milvus_db.db")
-    collection_name = "MilvusDocs"
+def save_to_milvus(embedding_dim: int, dict_list: list[dict[str, object]]) -> None:
+    """
+    Save the vectorized data to a Milvus collection.
+    Args:
+        embedding_dim (int): Dimension of the embedding vectors.
+        dict_list (list): List of dictionaries containing chunk data and vectors.
+    """
+    print("Saving to Milvus...")
+    # Initialize the Milvus client.
+    mc = MilvusClient("../data/local_milvus_database.db")
+
+    # Create a collection with flexible schema and AUTOINDEX.
+    collection_name: str = "MilvusDocs"
     mc.create_collection(
         collection_name=collection_name,
         dimension=embedding_dim,
@@ -71,8 +79,9 @@ def save_to_milvus(embedding_dim, dict_list) -> None:
         auto_id=True,
         overwrite=True,
     )
-    print("Start inserting entities")
 
+    # Insert data into the Milvus collection.
+    print("Start inserting entities")
     start_time = time.time()
     mc.insert(collection_name, data=dict_list, progress_bar=True)
     end_time = time.time()
@@ -83,17 +92,21 @@ def save_to_milvus(embedding_dim, dict_list) -> None:
 def main() -> None:
     data_path: str = "../../Personal-Cheat-Sheets"
 
-    chunks = load_data(data_path)
+    chunks: list = load_data(data_path)
     print(f"Total chunks created: {len(chunks)}")
 
     # Encoder input is doc.page_content as strings.
-    list_of_strings: list = [
+    list_of_strings: list[str] = [
         doc.page_content for doc in chunks if hasattr(doc, "page_content")
     ]
 
-    # Embedding inference using HuggingFace encoder.
+    # Download the encoder model.
     encoder, embedding_dim = download_encoder()
-    embeddings = encoder.encode(list_of_strings, show_progress_bar=True)
+
+    # Embedding inference using HuggingFace encoder.
+    embeddings = encoder.encode(
+        list_of_strings, show_progress_bar=True
+    )  # torch.tensor(list_of_strings)
 
     # Normalize the embeddings using numpy.
     embeddings = np.array(embeddings)
@@ -103,7 +116,7 @@ def main() -> None:
     converted_values = list(map(np.float32, embeddings))
 
     # Create dict_list for Milvus insertion.
-    dict_list = []
+    dict_list: list[dict[str, object]] = []
     for chunk, vector in zip(chunks, converted_values):
         # Assemble embedding vector, original text chunk, metadata.
         chunk_dict = {
