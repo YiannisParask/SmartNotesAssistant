@@ -1,110 +1,136 @@
 import torch
-import numpy as np
-from pymilvus import MilvusClient
-from sentence_transformers import SentenceTransformer
-from vllm import LLM, SamplingParams
-from typing import Any
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_milvus import Milvus
+from langchain_community.llms import VLLM
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from typing import List, Tuple, Dict, Any
 
 # Constants
-MODELNAME = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_NAME = "Qwen/Qwen2.5-1.5B"
 EMBED_MODEL = "BAAI/bge-large-en-v1.5"
 COLLECTION_NAME = "MilvusDocs"
-MILVUS_PATH = "../data/local_milvus_database.db"
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+MILVUS_URI = "../data/local_milvus_database.db"  # or milvus://<usr>:<pwd>@host:port
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+TOP_K = 5
 
 
-def encode_query(query: str, encoder: SentenceTransformer) -> np.ndarray:
-    """Encode the query using the provided SentenceTransformer model.
-
-    Args:
-        query (str): The query string to encode.
-        encoder (SentenceTransformer): The SentenceTransformer model to use for encoding.
+def get_embedding_function() -> HuggingFaceEmbeddings:
+    """Download and initialize the HuggingFace embeddings model.
 
     Returns:
-        np.ndarray: The normalized embedding of the query.
+        HuggingFaceEmbeddings: An instance of HuggingFaceEmbeddings with the specified model.
     """
-    emb = encoder.encode([query])
-    emb = emb / np.linalg.norm(emb, axis=1, keepdims=True)
-    return emb.astype(np.float32)[0]
-
-
-def search_milvus(query_emb: np.ndarray, top_k: int = 5) -> tuple[Any, Any]:
-    """Search the Milvus database for the top_k most similar contexts to the
-    query embedding.
-
-    Args:
-        query_emb (np.ndarray): The normalized embedding of the query.
-        top_k (int): The number of top results to return.
-
-    Returns:
-        tuple: A tuple containing two lists:
-            - contexts: The top_k most similar contexts.
-            - sources: The sources of the top_k contexts.
-    """
-    mc: Any = MilvusClient(MILVUS_PATH)
-    results: list = mc.search(
-        collection_name=COLLECTION_NAME,
-        data=[query_emb],
-        limit=top_k,
-        output_fields=["chunk", "source"],
+    embeddings = HuggingFaceEmbeddings(
+        model_name=EMBED_MODEL,
+        show_progress=False,
     )
-    hits = results[0]
-    contexts = [hit["chunk"] for hit in hits]
-    sources = [hit["source"] for hit in hits]
-    return contexts, sources
+    return embeddings
 
 
-def build_prompt(contexts, sources, question) -> str:
-    """Build a prompt for the LLM using the provided contexts, sources, and
-    question.
+def get_retriever(
+    uri: str,
+    embeddings: HuggingFaceEmbeddings,
+    collection_name: str = COLLECTION_NAME,
+    k: int = TOP_K,
+) -> Any:
+    """Create a Milvus vectorstore retriever using LangChain and return it.
 
     Args:
-        contexts (list): A list of context strings.
-        sources (list): A list of source strings corresponding to the contexts.
-        question (str): The user's question.
+        uri (str): URI for the Milvus database.
+        embeddings (SentenceTransformerEmbeddings): Embedding function to use.
+        collection_name (str): Name of the Milvus collection.
+        k (int): Number of top results to return.
 
     Returns:
-        str: The formatted prompt string.
+        Any: A retriever object that can be used to query the Milvus vectorstore.
     """
-    contexts_combined = " ".join(reversed(contexts))
-    source_combined = ", ".join(reversed(list(dict.fromkeys(sources))))
-    prompt = f"""First, check if the provided Context is relevant to the user's
-              question. Second, only if the provided Context is strongly
-              relevant, answer the question using the Context.
-              Otherwise, if the Context is not strongly relevant, answer the
-              question without using the Context. Be clear, concise, relevant.
-              Answer clearly, in fewer than 2 sentences.
-            Grounding sources: {source_combined}
-            Context: {contexts_combined}
-            User's question: {question}
-            """
-    return prompt
+    vectorstore = Milvus(
+        embedding_function=embeddings,
+        collection_name=collection_name,
+        connection_args={
+            "uri": uri,
+        },
+    )
+    return vectorstore.as_retriever(search_kwargs={"k": k})
 
 
-# TODO: Add argument parsing for command line usage
+def build_prompt_template() -> PromptTemplate:
+    """Create a PromptTemplate for RAG QA."""
+    template = (
+        "First, check if the provided Context is relevant to the user's question.\n"
+        "Second, only if the provided Context is strongly relevant, answer the question using the Context.\n"
+        "Otherwise, if the Context is not strongly relevant, answer the question without using the Context.\n"
+        "Be clear, concise, in fewer than 2 sentences.\n\n"
+        "### Context:\n{context}\n\n"
+        "### Question:\n{question}\n\n"
+        "### Answer:"
+    )
+    return PromptTemplate(input_variables=["context", "question"], template=template)
+
+
+def get_llm() -> VLLM:
+    """Instantiate the VLLM LLM wrapper."""
+    return VLLM(
+        model=MODEL_NAME,
+        dtype="bfloat16",
+        gpu_memory_utilization=0.3,
+        max_model_len=1000,
+        enforce_eager=True,
+    )
+
+
+def get_qa_chain(llm: VLLM, retriever, prompt: PromptTemplate) -> RetrievalQA:
+    """Build and return a RetrievalQA chain with custom prompt."""
+    return RetrievalQA.from_chain_type(
+        llm=llm,
+        chain_type="stuff",
+        retriever=retriever,
+        return_source_documents=True,
+        chain_type_kwargs={"prompt": prompt},
+    )
+
+
+def perform_rag_query(
+    chain: RetrievalQA, query: str
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """Run the RetrievalQA chain on the given query.
+
+    Args:
+        chain (RetrievalQA): The RetrievalQA chain to use.
+        query (str): The user's query string.
+
+    Returns:
+        Tuple[str, List[Dict[str, Any]]]: A tuple containing the answer string and a list of source documents.
+    """
+    result = chain.invoke({"query": query})
+    answer = result["result"].strip()
+    sources = [
+        {"source": doc.metadata.get("source", "<unknown>"), "text": doc.page_content}
+        for doc in result["source_documents"]
+    ]
+    return answer, sources
+
+
 def main() -> None:
-    # sample question
-    question: str = "What is Big Data?"
+    # Prepare components
+    embeddings = get_embedding_function()
+    retriever = get_retriever(MILVUS_URI, embeddings)
+    prompt = build_prompt_template()
+    llm: VLLM = get_llm()
 
-    encoder: Any = SentenceTransformer(EMBED_MODEL, device=DEVICE)  # type: ignore
-    encoded_query: np.ndarray = encode_query(question, encoder)
-    contexts, sources = search_milvus(encoded_query, top_k=5)
-    prompt: str = build_prompt(contexts, sources, question)
+    # Build chain
+    qa_chain: RetrievalQA = get_qa_chain(llm, retriever, prompt)
 
-    llm: Any = LLM(
-        model=MODELNAME,
-        device=DEVICE,
-    )
-    sampling_params: Any = SamplingParams(
-        temperature=0.1,
-        top_p=0.95,
-    )
+    # Sample query
+    question = "What is Big Data?"
+    answer, sources = perform_rag_query(qa_chain, question)
 
-    outputs: list = llm.generate([prompt], sampling_params)
-
-    for output in outputs:
-        print(f"Question: {question!r}")
-        print(f"Generated text: {output.outputs[0].text!r}")
+    # Print output
+    print("📝 Answer:\n", answer)
+    print("\n📚 Sources:")
+    for src in sources:
+        print(f" • {src['source']}: {src['text'][:200]!r}...")
 
 
 if __name__ == "__main__":

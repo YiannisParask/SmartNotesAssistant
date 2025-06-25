@@ -56,7 +56,7 @@ def load_pdf_data(data_path: str) -> list:
     return docs
 
 
-def load_embedding_model() -> tuple[object, int]:
+def load_embedding_model() -> tuple[SentenceTransformer, int]:
     """Download and initialize the SentenceTransformer model.
 
     Returns:

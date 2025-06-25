@@ -14,4 +14,6 @@ dependencies = [
     "unstructured",
     "unstructured[md]",
     "sentence_transformers",
+    "langchain-huggingface>=0.3.0",
+    "langchain-milvus>=0.2.0",
 ]
