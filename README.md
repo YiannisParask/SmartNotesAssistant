@@ -17,3 +17,6 @@ Inspirations:
   3.1](https://milvus.io/docs/milvus_rag_with_vllm.md)
 - [Retrieval-Augmented Generation (RAG) with Milvus and
   LangChain](https://milvus.io/docs/integrate_with_langchain.md)
+- [RAG example with Langchain, Milvus, and
+  vLLM](https://github.com/rh-aiservices-bu/llm-on-openshift/blob/main/examples/notebooks/langchain/RAG_with_sources_Langchain-vLLM-Milvus.ipynb)
+- [rag-qwen-vllm-milvus](https://github.com/benitomartin/rag-qwen-vllm-milvus)
