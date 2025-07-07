@@ -82,7 +82,10 @@ def slit_docs(docs: list) -> list:
 
 
 def save_to_milvus(dict_list: list) -> None:
-    """Save the vectorized data to a Milvus collection using LangChain."""
+    """Save the vectorized data to a Milvus collection using LangChain.
+    Args:
+        dict_list (list): List of dictionaries containing document chunks and metadata.
+    """
     print("Saving to Milvus...")
 
     embeddings = HuggingFaceEmbeddings(

@@ -14,7 +14,6 @@ EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
 COLLECTION_NAME = "MilvusDocs"
 MILVUS_URI = "/home/yiannisparask/Projects/SmartNotesAssistant/data/local_milvus_database.db"  # or milvus://<usr>:<pwd>@host:port
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-TOP_K = 5
 
 
 def get_embedding_function() -> HuggingFaceEmbeddings:
@@ -33,8 +32,8 @@ def get_embedding_function() -> HuggingFaceEmbeddings:
 def get_retriever(
     uri: str,
     embeddings: HuggingFaceEmbeddings,
+    top_k: int,
     collection_name: str = COLLECTION_NAME,
-    k: int = TOP_K,
 ) -> Any:
     """Create a Milvus vectorstore retriever using LangChain and return it.
 
@@ -55,7 +54,7 @@ def get_retriever(
         },
         text_field="chunk",
     )
-    return vectorstore.as_retriever(search_kwargs={"k": k})
+    return vectorstore.as_retriever(search_kwargs={"k": top_k})
 
 
 def build_prompt_template() -> PromptTemplate:
@@ -64,7 +63,7 @@ def build_prompt_template() -> PromptTemplate:
         "First, check if the provided Context is relevant to the user's question.\n"
         "Second, only if the provided Context is strongly relevant, answer the question using the Context.\n"
         "Otherwise, if the Context is not strongly relevant, answer the question without using the Context.\n"
-        "Be clear, concise, in fewer than 2 sentences.\n\n"
+        "Be clear and concise.\n\n"
         "### Context:\n{context}\n\n"
         "### Question:\n{question}\n\n"
         "### Answer:"
@@ -87,13 +86,23 @@ def get_vllm() -> VLLM:
 
 
 def get_hg_llm():
+    """Instantiate the HuggingFace LLM wrapper."""
     llm_pipeline = pipeline(task="text-generation", model=MODEL_NAME)
     hf_llm = HuggingFacePipeline(pipeline=llm_pipeline)
     return hf_llm
 
 
-def get_qa_chain(llm: VLLM, retriever, prompt: PromptTemplate) -> RetrievalQA:
-    """Build and return a RetrievalQA chain with custom prompt."""
+def get_qa_chain(llm: Any, retriever, prompt: PromptTemplate) -> RetrievalQA:
+    """Build and return a RetrievalQA chain with custom prompt.
+
+    Args:
+        llm (Any): The language model to use (HuggingFace or VLLM).
+        retriever: The retriever object for fetching relevant documents.
+        prompt (PromptTemplate): The prompt template to use for the chain.
+
+    Returns:
+        RetrievalQA: A RetrievalQA chain configured with the provided LLM, retriever, and prompt.
+    """
     return RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
@@ -127,7 +136,8 @@ def perform_rag_query(
 def main() -> None:
     # Prepare components
     embeddings = get_embedding_function()
-    retriever = get_retriever(MILVUS_URI, embeddings)
+    top_k = 5
+    retriever = get_retriever(MILVUS_URI, embeddings, top_k)
     prompt = build_prompt_template()
 
     # Clear cache and collect garbage
