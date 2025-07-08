@@ -85,7 +85,7 @@ def get_vllm() -> VLLM:
     )
 
 
-def get_hg_llm():
+def get_hg_llm() -> HuggingFacePipeline:
     """Instantiate the HuggingFace LLM wrapper."""
     llm_pipeline = pipeline(task="text-generation", model=MODEL_NAME)
     hf_llm = HuggingFacePipeline(pipeline=llm_pipeline)

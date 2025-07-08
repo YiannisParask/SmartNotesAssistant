@@ -81,20 +81,29 @@ def slit_docs(docs: list) -> list:
     return chunks
 
 
-def save_to_milvus(dict_list: list) -> None:
+def get_embeddings_model() -> HuggingFaceEmbeddings:
+    """Get the HuggingFace embeddings model for vectorization.
+
+    Returns:
+        HuggingFaceEmbeddings: The embeddings model.
+    """
+    return HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-mpnet-base-v2",
+        device=DEVICE,
+    )
+
+
+def save_to_milvus(dict_list: list, embeddings_model) -> None:
     """Save the vectorized data to a Milvus collection using LangChain.
     Args:
         dict_list (list): List of dictionaries containing document chunks and metadata.
     """
     print("Saving to Milvus...")
 
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-mpnet-base-v2"
-    )
     # Initialize LangChain Milvus vectorstore
     Milvus.from_documents(
         documents=dict_list,
-        embedding=embeddings,
+        embedding=embeddings_model,
         collection_name=COLLECTION_NAME,
         connection_args={
             "uri": "/home/yiannisparask/Projects/SmartNotesAssistant/data/local_milvus_database.db"
@@ -114,7 +123,9 @@ def main() -> None:
 
     chunks: list = slit_docs(docs)
 
-    save_to_milvus(chunks)
+    embeddings_model: HuggingFaceEmbeddings = get_embeddings_model()
+
+    save_to_milvus(chunks, embeddings_model)
 
 
 if __name__ == "__main__":

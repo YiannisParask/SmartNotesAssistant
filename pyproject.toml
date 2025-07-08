@@ -16,4 +16,6 @@ dependencies = [
     "sentence_transformers",
     "langchain-huggingface>=0.3.0",
     "langchain-milvus>=0.2.0",
+    "textual>=3.6.0",
+    "rich>=14.0.0",
 ]
