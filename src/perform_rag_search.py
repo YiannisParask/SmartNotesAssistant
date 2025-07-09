@@ -10,6 +10,13 @@ from transformers.pipelines import pipeline
 
 class RagSearch:
     def __init__(self, milvus_uri: str, device: str, collection_name: str):
+        """Initialize the RagSearch class.
+
+        Args:
+            milvus_uri (str): URI for the Milvus database.
+            device (str): Device to use for embeddings, e.g., 'cuda' or 'cpu'.
+            collection_name (str): Name of the Milvus collection to store vectors.
+        """
         self.collection_name: str = collection_name
         self.milvus_uri: str = milvus_uri
         self.device: str = device

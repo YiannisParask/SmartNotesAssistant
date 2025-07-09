@@ -9,27 +9,27 @@ COLLECTION_NAME = "MilvusDocs"
 MILVUS_URI = "/home/yiannisparask/Projects/SmartNotesAssistant/data/local_milvus_database.db"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+def load_and_vectorize_data(data_path: str) -> None:
 
-def main() -> None:
+    # Initialize the data loader
+    loader = LoadAndVectorizeData(
+        data_path=data_path,
+        collection_name=COLLECTION_NAME,
+        device=DEVICE,
+        milvus_uri=MILVUS_URI
+    )
+
+    # Load and process documents
+    docs = loader.load_md_data()
+    chunks = loader.slit_docs(docs)
+    embeddings_model = loader.get_embeddings_model(embeddings_model=EMBED_MODEL)
+
+    # Save to Milvus
+    loader.save_to_milvus(chunks, embeddings_model)
+
+
+def perform_rag_search() -> None:
     torch.cuda.empty_cache()
-    # data_path: str = "/home/yiannisparask/Projects/Personal-Cheat-Sheets"
-
-    # # Initialize the data loader
-    # loader = LoadAndVectorizeData(
-    #     data_path=data_path,
-    #     collection_name=COLLECTION_NAME,
-    #     device=DEVICE,
-    #     embeddings_model_name=EMBED_MODEL,
-    #     milvus_uri=MILVUS_URI
-    # )
-
-    # # Load and process documents
-    # docs = loader.load_md_data()
-    # chunks = loader.slit_docs(docs)
-    # embeddings_model = loader.get_embeddings_model()
-
-    # # Save to Milvus
-    # loader.save_to_milvus(chunks, embeddings_model)
 
     # Example RAG search
     rag_search = RagSearch(
@@ -54,6 +54,12 @@ def main() -> None:
     print("\n📚 Sources:")
     for src in sources:
         print(f" • {src['source']}: {src['text'][:200]}...")
+
+
+def main() -> None:
+    data_path: str = "/home/yiannisparask/Projects/Personal-Cheat-Sheets"
+    #load_and_vectorize_data(data_path)
+    perform_rag_search()
 
 
 if __name__ == "__main__":
