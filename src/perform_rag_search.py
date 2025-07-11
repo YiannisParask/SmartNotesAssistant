@@ -3,7 +3,7 @@ from langchain_milvus import Milvus
 from langchain_community.llms import VLLM
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
-from typing import List, Tuple, Dict, Any
+from typing import Any
 from transformers.pipelines import pipeline
 
 
@@ -125,7 +125,7 @@ class RagSearch:
         )
 
 
-    def perform_rag_query(self, chain: RetrievalQA, query: str) -> Tuple[str, List[Dict[str, Any]]]:
+    def perform_rag_query(self, chain: RetrievalQA, query: str) -> str:
         """Run the RetrievalQA chain on the given query.
 
         Args:
@@ -133,15 +133,17 @@ class RagSearch:
             query (str): The user's query string.
 
         Returns:
-            Tuple[str, List[Dict[str, Any]]]: A tuple containing the answer string and a list of source documents.
+            str: The answer string.
         """
         result = chain.invoke({"query": query})
-        answer = result["result"].strip()
-        sources = [
-            {"source": doc.metadata.get("source", "<unknown>"), "text": doc.page_content}
-            for doc in result["source_documents"]
-        ]
-        return answer, sources
+        answer_full = result["result"].strip()
+
+        # Extract only the part after '### Answer:' if present
+        answer = answer_full
+        if "### Answer:" in answer_full:
+            answer = answer_full.split("### Answer:", 1)[-1].strip()
+
+        return answer
 
 
 # def main() -> None:
