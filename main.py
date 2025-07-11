@@ -26,7 +26,9 @@ class ChatApp(App):
     #chat { width: 80vw; height: 60vh; border: round yellow; padding: 1; }
     #input { width: 80vw; margin-top: 1; }
     """
-    messages = reactive([])
+
+    messages: reactive[list[str]] = reactive([])
+
 
     def compose(self) -> ComposeResult:
         yield VerticalScroll(id="chat_container")
@@ -69,6 +71,12 @@ class ChatApp(App):
         if not user_message or self.querying:
             return
         self.querying = True
+
+        # Disable input while processing
+        input_widget = self.query_one("#input", Input)
+        input_widget.disabled = True
+        input_widget.placeholder = "Processing... Please wait"
+
         chat = self.query_one("#chat_container", VerticalScroll)
         chat.mount(Message("You", user_message))
         event.input.value = ""
@@ -80,6 +88,7 @@ class ChatApp(App):
         if self.rag is None or self.qa_chain is None:
             chat.mount(Message("System", "Error: RAG system not initialized. Please restart the application."))
             self.querying = False
+            self.re_enable_input()
             return
 
         torch.cuda.empty_cache()
@@ -92,15 +101,26 @@ class ChatApp(App):
             chat.mount(Message("System", f"Error processing query: {e}"))
 
         self.querying = False
+        self.re_enable_input()
 
         def scroll_to_end():
             chat.scroll_y = chat.virtual_size.height
 
         self.call_after_refresh(scroll_to_end)
 
+
+    def re_enable_input(self):
+        """Re-enable the input field after processing."""
+        input_widget = self.query_one("#input", Input)
+        input_widget.disabled = False
+        input_widget.placeholder = "Type your message and press Enter..."
+        input_widget.value = ""
+
+
     def on_unmount(self):
         """Clean up memory when the app is closed."""
         self.cleanup_memory()
+
 
     def cleanup_memory(self):
         """Clean up GPU memory and Python objects."""
