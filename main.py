@@ -36,7 +36,7 @@ class ChatApp(App):
 
 
     def on_mount(self):
-        # Initialize your RAG pipeline once!
+        # Initialize RAG pipeline once!
         self.console.log("Loading models and vector store (this may take a minute)...")
         try:
             self.rag = RagSearch(
