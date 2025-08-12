@@ -1,6 +1,6 @@
 import torch
 from textual.app import App, ComposeResult
-from textual.widgets import Input, Static
+from textual.widgets import Input, Static, Placeholder
 from textual.reactive import reactive
 from src.perform_rag_search import RagSearch
 from textual.containers import VerticalScroll
@@ -15,6 +15,14 @@ MILVUS_URI = "/home/yiannisparask/Projects/SmartNotesAssistant/data/local_milvus
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
+class Header(Placeholder):
+    DEFAULT_CSS = """
+    Header {
+        height: 3;
+        dock: top;
+    }
+    """
+
 class Message(Static):
     def __init__(self, user: str, message: str, **kwargs):
         style = "bold blue" if user == "You" else "magenta"
@@ -22,15 +30,29 @@ class Message(Static):
 
 class ChatApp(App):
     CSS = """
-    Screen { align: center middle; }
-    #chat { width: 80vw; height: 60vh; border: round yellow; padding: 1; }
-    #input { width: 80vw; margin-top: 1; }
+    Screen {
+        layout: vertical;
+        align: center middle;
+    }
+
+    #chat_container {
+        height: 1fr;           /* fill remaining space */
+        width: 100%;
+        border: round blue;
+        padding: 1;
+    }
+
+    #input {
+        width: 100%;           /* full width at the bottom */
+        min-height: 3;         /* keep it one line tall; adjust if desired */
+    }
     """
 
     messages: reactive[list[str]] = reactive([])
 
 
     def compose(self) -> ComposeResult:
+        yield Header("Smart Notes Assistant")
         yield VerticalScroll(id="chat_container")
         yield Input(placeholder="Type your message and press Enter...", id="input")
 
