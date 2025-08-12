@@ -1,6 +1,6 @@
 import torch
 from textual.app import App, ComposeResult
-from textual.widgets import Input, Static, Placeholder
+from textual.widgets import Input, Static, Placeholder, Footer
 from textual.reactive import reactive
 from src.perform_rag_search import RagSearch
 from textual.containers import VerticalScroll
@@ -49,10 +49,11 @@ class ChatApp(App):
     """
 
     messages: reactive[list[str]] = reactive([])
-
+    BINDINGS = [("d", "toggle_dark", "Toggle dark mode")]
 
     def compose(self) -> ComposeResult:
         yield Header("Smart Notes Assistant")
+        yield Footer()
         yield VerticalScroll(id="chat_container")
         yield Input(placeholder="Type your message and press Enter...", id="input")
 
@@ -170,6 +171,13 @@ class ChatApp(App):
             self.console.log("Memory cleaned up successfully.")
         except Exception as e:
             self.console.log(f"Error during cleanup: {e}")
+
+
+    def action_toggle_dark(self) -> None:
+        """An action to toggle dark mode."""
+        self.theme = (
+            "textual-dark" if self.theme == "textual-light" else "textual-light"
+        )
 
 
 if __name__ == "__main__":
