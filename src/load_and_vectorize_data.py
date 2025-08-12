@@ -98,7 +98,7 @@ class LoadAndVectorizeData:
         """
         return HuggingFaceEmbeddings(
             model_name=embeddings_model,
-            device=self.device,
+            #device=self.device,
         )
 
 
