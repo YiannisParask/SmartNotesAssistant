@@ -1,6 +1,6 @@
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
 from langchain_milvus import Milvus
-from langchain_community.llms import VLLM
+#from langchain_community.llms import VLLM
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 from typing import Any
@@ -77,22 +77,22 @@ class RagSearch:
         return PromptTemplate(input_variables=["context", "question"], template=template)
 
 
-    def get_vllm(self, llm_model_name: str) -> VLLM:
-        """Instantiate the VLLM LLM wrapper."""
-        if self.text_generator is not None:
-            return self.text_generator
-        else:
-            self.text_generator = VLLM(
-                model=llm_model_name,
-                dtype="bfloat16",
-                gpu_memory_utilization=0.5,
-                # max_model_len=1000,
-                enforce_eager=True,
-                # top_k=TOP_K,
-                temperature=0.1,
-                max_new_tokens=500,
-            )
-            return self.text_generator
+    # def get_vllm(self, llm_model_name: str) -> VLLM:
+    #     """Instantiate the VLLM LLM wrapper."""
+    #     if self.text_generator is not None:
+    #         return self.text_generator
+    #     else:
+    #         self.text_generator = VLLM(
+    #             model=llm_model_name,
+    #             dtype="bfloat16",
+    #             gpu_memory_utilization=0.5,
+    #             # max_model_len=1000,
+    #             enforce_eager=True,
+    #             # top_k=TOP_K,
+    #             temperature=0.1,
+    #             max_new_tokens=500,
+    #         )
+    #         return self.text_generator
 
 
     def get_hg_llm(self, llm_model_name: str) -> Any:
