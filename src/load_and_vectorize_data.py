@@ -64,7 +64,7 @@ class LoadAndVectorizeData:
         return docs
 
 
-    def slit_docs(self, docs: list) -> list:
+    def split_docs(self, docs: list) -> list:
         """Split documents into smaller chunks for vectorization.
 
         Args:
@@ -124,18 +124,3 @@ class LoadAndVectorizeData:
 
         print(f"Inserted {len(dict_list)} vectors into Milvus.")
 
-
-# def main() -> None:
-#     data_path: str = "/home/yiannisparask/Projects/Personal-Cheat-Sheets"
-
-#     docs: list = load_md_data(data_path)
-
-#     chunks: list = slit_docs(docs)
-
-#     embeddings_model: HuggingFaceEmbeddings = get_embeddings_model()
-
-#     save_to_milvus(chunks, embeddings_model)
-
-
-# if __name__ == "__main__":
-#     main()

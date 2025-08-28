@@ -7,7 +7,6 @@ from typing import Any
 from transformers.pipelines import pipeline
 
 
-
 class RagSearch:
     def __init__(self, milvus_uri: str, device: str, collection_name: str):
         """Initialize the RagSearch class.
@@ -144,35 +143,3 @@ class RagSearch:
             answer = answer_full.split("### Answer:", 1)[-1].strip()
 
         return answer
-
-
-# def main() -> None:
-#     # Prepare components
-#     embeddings = get_embedding_function()
-#     top_k = 5
-#     retriever = get_retriever(MILVUS_URI, embeddings, top_k)
-#     prompt = build_prompt_template()
-
-#     # Clear cache and collect garbage
-#     gc.collect()
-#     torch.cuda.empty_cache()
-
-#     llm = get_hg_llm()
-#     # llm = get_vllm()
-
-#     # Build chain
-#     qa_chain: RetrievalQA = get_qa_chain(llm, retriever, prompt)
-
-#     # Sample query
-#     question = "What is Big Data?"
-#     answer, sources = perform_rag_query(qa_chain, question)
-
-#     # Print output
-#     print("📝 Answer:\n", answer)
-#     print("\n📚 Sources:")
-#     for src in sources:
-#         print(f" • {src['source']}: {src['text'][:200]!r}...")
-
-
-# if __name__ == "__main__":
-#     main()
