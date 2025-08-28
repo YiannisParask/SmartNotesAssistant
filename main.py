@@ -15,7 +15,8 @@ import traceback
 MODEL_NAME = "Qwen/Qwen2.5-1.5B"
 EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
 COLLECTION_NAME = "MilvusDocs"
-MILVUS_URI = "/home/yiannisparask/Projects/SmartNotesAssistant/data/local_milvus_database.db"
+CWD = os.getcwd()
+MILVUS_URI = os.path.join(CWD, "data", "local_milvus_database.db")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -177,7 +178,7 @@ class ChatApp(App):
             # if not docs:
             #     raise ValueError(f"No documents found in: {data_dir}")
 
-            chunks = lvd.slit_docs(md_docs)
+            chunks = lvd.split_docs(md_docs)
             embeddings = lvd.get_embeddings_model(EMBED_MODEL)
             lvd.save_to_milvus(chunks, embeddings)
         finally:
