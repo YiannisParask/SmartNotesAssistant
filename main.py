@@ -3,9 +3,10 @@ import torch
 from textual.app import App, ComposeResult
 from textual.widgets import Input, Static, Placeholder, Footer, Button
 from textual.reactive import reactive
+from textual.binding import Binding
 from src.perform_rag_search import RagSearch
 from src.load_and_vectorize_data import LoadAndVectorizeData
-from textual.containers import VerticalScroll
+from textual.containers import VerticalScroll, Horizontal
 import asyncio
 from rich.markup import escape
 import traceback
@@ -43,43 +44,54 @@ class ChatApp(App):
     }
 
     #chat_container {
-        height: 1fr;           /* fill remaining space */
+        height: 1fr;
         width: 100%;
         border: round blue;
         padding: 1;
     }
 
     #input {
-        width: 100%;           /* full width at the bottom */
-        min-height: 3;         /* keep it one line tall; adjust if desired */
+        width: 100%;
+        min-height: 3;
     }
     """
 
     messages: reactive[list[str]] = reactive([])
-    BINDINGS = [("d", "toggle_dark", "Toggle dark mode")]
+    BINDINGS = [
+        Binding(key="q", action="quit", description="Quit the app"),
+        Binding(key="d", action="toggle_dark", description="Toggle dark mode"),
+        Binding(key="s", action="toggle_settings", description="Settings")
+    ]
 
 
     def compose(self) -> ComposeResult:
+        #yield LoadingIndicator()
         yield Header("Smart Notes Assistant")
-        yield Footer()
 
         # Setup panel (shown only if DB/collection missing)
         setup = Static(id="setup")
         setup.update(
-            "[b]First-time setup[/b]\n"
+            "[b]Setup Page[/b]\n"
             "Provide the path to your data folder. Click 'Build Index' to load and vectorize.\n\n"
         )
         yield setup
 
         # Controls inside setup
         yield Input(placeholder="Enter your data folder path...", id="data_path")
-        yield Button("Build Index", id="build_index")
+        # Buttons row (Build + Back)
+        yield Horizontal(
+            Button("Build Index", id="build_index"),
+            Button("Back", id="back_setup"),
+            id="setup_buttons",
+        )
         yield Static("", id="setup_status")
 
         # Chat UI (shown after setup is complete)
         yield VerticalScroll(id="chat_container")
         yield Input(placeholder="Type your message and press Enter...", id="input")
 
+        # Show Footer
+        yield Footer()
 
     def on_mount(self):
         self.querying = False
@@ -99,19 +111,21 @@ class ChatApp(App):
         setup = self.query_one("#setup", Static)
         data_path = self.query_one("#data_path", Input)
         build_button = self.query_one("#build_index", Button)
+        back_button = self.query_one("#back_setup", Button)
+        setup_buttons = self.query_one("#setup_buttons", Horizontal)
         setup_status = self.query_one("#setup_status", Static)
 
         # Chat widgets
         chat = self.query_one("#chat_container", VerticalScroll)
         chat_input = self.query_one("#input", Input)
 
-        setup.display = True if show_setup else False
-        data_path.display = True if show_setup else False
-        build_button.display = True if show_setup else False
-        setup_status.display = True if show_setup else False
+        for w in (setup, data_path, setup_buttons, setup_status):
+            w.display = show_setup
+        chat.display = not show_setup
+        chat_input.display = not show_setup
 
-        chat.display = False if show_setup else True
-        chat_input.display = False if show_setup else True
+        # Enable Back only if an index already exists or RAG loaded
+        back_button.disabled = not (os.path.exists(MILVUS_URI) or self.rag)
 
         if show_setup:
             self.set_focus(data_path)
@@ -152,12 +166,26 @@ class ChatApp(App):
 
 
     async def on_button_pressed(self, event: Button.Pressed):
+        """Handle button press events."""
         if event.button.id == "build_index":
             await self._handle_build_index()
+        elif event.button.id == "back_setup":
+            self._attempt_back_from_setup()
+
+
+    def _attempt_back_from_setup(self):
+        """Attempt to go back from setup to chat."""
+        status = self.query_one("#setup_status", Static)
+        if os.path.exists(MILVUS_URI) or self.rag:
+            self._toggle_setup(False)
+        else:
+            status.update("[yellow]Cannot go back: index not built yet.[/yellow]")
 
 
     def build_index(self, data_dir: str) -> None:
-
+        """
+        Build the Milvus Lite index from the specified data directory.
+        """
         # Ensure the Milvus Lite data directory exists
         os.makedirs(os.path.dirname(MILVUS_URI), exist_ok=True)
 
@@ -173,10 +201,6 @@ class ChatApp(App):
                 milvus_uri=MILVUS_URI,
             )
             md_docs = lvd.load_md_data()
-            # pdf_docs = lvd.load_pdf_data()
-            # docs = (md_docs or []) + (pdf_docs or [])
-            # if not docs:
-            #     raise ValueError(f"No documents found in: {data_dir}")
 
             chunks = lvd.split_docs(md_docs)
             embeddings = lvd.get_embeddings_model(EMBED_MODEL)
@@ -229,9 +253,7 @@ class ChatApp(App):
 
 
     async def on_input_submitted(self, event: Input.Submitted):
-        """
-
-        """
+        """Handle user input submission."""
         user_message = event.value.strip()
         if not user_message or self.querying:
             return
@@ -320,6 +342,14 @@ class ChatApp(App):
         self.theme = (
             "textual-dark" if self.theme == "textual-light" else "textual-light"
         )
+
+
+    def action_toggle_settings(self):
+        """Keyboard shortcut: show/hide setup (data folder + build)."""
+        if getattr(self, 'querying', False):
+            return
+        setup = self.query_one("#setup", Static)
+        self._toggle_setup(not setup.display)
 
 
 if __name__ == "__main__":
