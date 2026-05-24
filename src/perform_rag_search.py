@@ -18,7 +18,7 @@ class RagSearch:
         """
         self.collection_name: str = collection_name
         self.milvus_uri: str = milvus_uri
-        self.device: str = device
+        self.device: Any = device
         self.text_generator: Any = None  # or get_vllm()
         self.embeddings_generator: Any = None
 

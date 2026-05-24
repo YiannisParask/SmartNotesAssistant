@@ -1,7 +1,9 @@
 import os
+from typing import Any
+from langchain_huggingface import HuggingFaceEmbeddings
 import torch
 from textual.app import App, ComposeResult
-from textual.widgets import Input, Static, Placeholder, Footer, Button
+from textual.widgets import Input, LoadingIndicator, Static, Placeholder, Footer, Button
 from textual.reactive import reactive
 from textual.binding import Binding
 from src.perform_rag_search import RagSearch
@@ -10,15 +12,16 @@ from textual.containers import VerticalScroll, Horizontal
 import asyncio
 from rich.markup import escape
 import traceback
+import gc
 
 
 # Constants
 MODEL_NAME = "Qwen/Qwen2.5-1.5B"
 EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
 COLLECTION_NAME = "MilvusDocs"
-CWD = os.getcwd()
-MILVUS_URI = os.path.join(CWD, "data", "local_milvus_database.db")
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+CWD: str = os.getcwd()
+MILVUS_URI: str = os.path.join(CWD, "data", "local_milvus_database.db")
+DEVICE: Any = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 class Header(Placeholder):
@@ -54,6 +57,10 @@ class ChatApp(App):
         width: 100%;
         min-height: 3;
     }
+
+    .hidden {
+        display: none;
+    }
     """
 
     messages: reactive[list[str]] = reactive([])
@@ -65,8 +72,13 @@ class ChatApp(App):
 
 
     def compose(self) -> ComposeResult:
-        #yield LoadingIndicator()
+        """ `Textual` method that renders all UI elements.
+        Defines the applications UI layout and components.
+        """
         yield Header("Smart Notes Assistant")
+
+        # Initialization loader
+        yield LoadingIndicator(id="init_loader", classes="hidden")
 
         # Setup panel (shown only if DB/collection missing)
         setup = Static(id="setup")
@@ -93,65 +105,98 @@ class ChatApp(App):
         # Show Footer
         yield Footer()
 
-    def on_mount(self):
+
+    async def on_mount(self) -> None:
+        """ `Textual` method. Initialize the RAG system and set up the UI based
+        on whether the MilvusLiteDB file exists.
+        """
         self.querying = False
         self.rag = None
         self.qa_chain = None
 
         # Show setup if the Milvus Lite DB file isn't present yet.
-        needs_setup = not os.path.exists(MILVUS_URI)
+        needs_setup: bool = not os.path.exists(MILVUS_URI)
         self._toggle_setup(needs_setup)
 
+        # If the DB file exists, we can initialize the RAG system immediately.
         if not needs_setup:
-            self.initialize_rag()
+            await self.initialize_rag()
 
 
-    def _toggle_setup(self, show_setup: bool):
+    def _toggle_setup(self, show_setup: bool) -> None:
+        """
+        Toggle the visibility of the setup page.
+        """
         # Setup widgets
-        setup = self.query_one("#setup", Static)
-        data_path = self.query_one("#data_path", Input)
-        build_button = self.query_one("#build_index", Button)
-        back_button = self.query_one("#back_setup", Button)
-        setup_buttons = self.query_one("#setup_buttons", Horizontal)
-        setup_status = self.query_one("#setup_status", Static)
+        setup: Static = self.query_one("#setup", Static)
+        data_path: Input = self.query_one("#data_path", Input)
+        setup_buttons: Horizontal = self.query_one("#setup_buttons", Horizontal)
+        setup_status: Static = self.query_one("#setup_status", Static)
+        chat: VerticalScroll = self.query_one("#chat_container", VerticalScroll)
+        chat_input: Input = self.query_one("#input", Input)
 
-        # Chat widgets
-        chat = self.query_one("#chat_container", VerticalScroll)
-        chat_input = self.query_one("#input", Input)
+        init_loader: LoadingIndicator = self.query_one("#init_loader", LoadingIndicator)
 
         for w in (setup, data_path, setup_buttons, setup_status):
             w.display = show_setup
         chat.display = not show_setup
         chat_input.display = not show_setup
 
-        # Enable Back only if an index already exists or RAG loaded
-        back_button.disabled = not (os.path.exists(MILVUS_URI) or self.rag)
-
         if show_setup:
+            init_loader.display = False
             self.set_focus(data_path)
         else:
             self.set_focus(chat_input)
 
+        # Enable Back only if an index already exists or RAG loaded
+        back_button: Button = self.query_one("#back_setup", Button)
+        back_button.disabled = not (os.path.exists(MILVUS_URI) or self.rag)
 
-    def initialize_rag(self):
+
+    async def initialize_rag(self) -> None:
+        """ Initialize the RAG pipeline components. This should only be called
+        once after the index is built.
+        """
         # Initialize RAG pipeline once!
-        self.console.log("Loading models and vector store (this may take a minute)...")
         chat = self.query_one("#chat_container", VerticalScroll)
-        try:
-            self.rag = RagSearch(
-                milvus_uri=MILVUS_URI,
-                device=DEVICE,
-                collection_name=COLLECTION_NAME,
-            )
-            # Setup embeddings, retriever, LLM, prompt, chain
-            self.rag.get_embeddings_model(EMBED_MODEL)
-            retriever = self.rag.get_retriever()
-            prompt = self.rag.build_prompt_template()
-            self.rag.get_hg_llm(MODEL_NAME)
-            self.qa_chain = self.rag.get_qa_chain(retriever, prompt)
-            self.querying = False
+        init_loader: LoadingIndicator = self.query_one("#init_loader", LoadingIndicator)
+        chat_input: Input = self.query_one("#input", Input)
 
-            chat = self.query_one("#chat_container", VerticalScroll)
+        init_loader.display = True
+        chat.display = False
+        chat_input.display = False
+
+        self.console.log("Loading models and vector store (this may take a minute)...")
+
+        try:
+            def _load():
+                # Some libraries expect an event loop to exist on the current
+                # thread (Python 3.11+ doesn't provide one automatically).
+                loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+                try:
+                    asyncio.set_event_loop(loop)
+
+                    self.rag = RagSearch(
+                        milvus_uri=MILVUS_URI,
+                        device=DEVICE,
+                        collection_name=COLLECTION_NAME,
+                    )
+                    # Setup embeddings, retriever, LLM, prompt, chain
+                    self.rag.get_embeddings_model(EMBED_MODEL)
+                    retriever: Any = self.rag.get_retriever()
+                    prompt: str = self.rag.build_prompt_template()
+                    self.rag.get_hg_llm(MODEL_NAME)
+                    self.qa_chain = self.rag.get_qa_chain(retriever, prompt)
+                finally:
+                    try:
+                        loop.close()
+                    finally:
+                        asyncio.set_event_loop(None)
+
+            # Offload heavy model loading to a background thread so the loader spins
+            await asyncio.to_thread(_load)
+
+            self.querying = False
             chat.mount(Message("System", "Welcome! Type your question and press Enter."))
             self.console.log("RAG system initialized successfully!")
 
@@ -160,12 +205,16 @@ class ChatApp(App):
             self.rag = None
             self.qa_chain = None
             self.querying = True  # Disable querying if initialization failed
-
-            chat = self.query_one("#chat_container", VerticalScroll)
             chat.mount(Message("System", f"Error: Failed to initialize RAG system. {e}"))
 
+        finally:
+            init_loader.display = False
+            chat.display = True
+            chat_input.display = True
+            self.set_focus(chat_input)
 
-    async def on_button_pressed(self, event: Button.Pressed):
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
         if event.button.id == "build_index":
             await self._handle_build_index()
@@ -173,9 +222,9 @@ class ChatApp(App):
             self._attempt_back_from_setup()
 
 
-    def _attempt_back_from_setup(self):
+    def _attempt_back_from_setup(self) -> None:
         """Attempt to go back from setup to chat."""
-        status = self.query_one("#setup_status", Static)
+        status: Static = self.query_one("#setup_status", Static)
         if os.path.exists(MILVUS_URI) or self.rag:
             self._toggle_setup(False)
         else:
@@ -183,14 +232,17 @@ class ChatApp(App):
 
 
     def build_index(self, data_dir: str) -> None:
-        """
-        Build the Milvus Lite index from the specified data directory.
+        """ Build the Milvus Lite index from the specified data directory.
+            Args:
+                data_dir (str): Path to the directory containing markdown files.
+            Returns:
+                None
         """
         # Ensure the Milvus Lite data directory exists
         os.makedirs(os.path.dirname(MILVUS_URI), exist_ok=True)
 
         # Create an event loop for this worker thread (needed by libs calling get_event_loop)
-        loop = asyncio.new_event_loop()
+        loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
 
@@ -200,10 +252,10 @@ class ChatApp(App):
                 device=DEVICE,
                 milvus_uri=MILVUS_URI,
             )
-            md_docs = lvd.load_md_data()
+            md_docs: list[Any] = lvd.load_md_data()
 
-            chunks = lvd.split_docs(md_docs)
-            embeddings = lvd.get_embeddings_model(EMBED_MODEL)
+            chunks: list[Any] = lvd.split_docs(md_docs)
+            embeddings: HuggingFaceEmbeddings = lvd.get_embeddings_model(EMBED_MODEL)
             lvd.save_to_milvus(chunks, embeddings)
         finally:
             try:
@@ -212,15 +264,15 @@ class ChatApp(App):
                 asyncio.set_event_loop(None)
 
 
-    async def _handle_build_index(self):
+    async def _handle_build_index(self) -> None:
+        """ Handle the build index button press event;
+        Disables UI controls & shows status message.
         """
-        Handle the build index button press event.
-        """
-        data_path = self.query_one("#data_path", Input)
-        status = self.query_one("#setup_status", Static)
-        build_btn = self.query_one("#build_index", Button)
+        data_path: Input = self.query_one("#data_path", Input)
+        status: Static = self.query_one("#setup_status", Static)
+        build_btn: Button = self.query_one("#build_index", Button)
 
-        path = (data_path.value or "").strip()
+        path: str = (data_path.value or "").strip()
         if not path:
             status.update("[red]Please provide a data folder path.[/red]")
             return
@@ -241,7 +293,7 @@ class ChatApp(App):
                 "[green]Index built successfully! Initializing chat...[/green]"
             )
             self._toggle_setup(False)
-            self.initialize_rag()
+            await self.initialize_rag()
         except Exception as e:
             self.console.log(traceback.format_exc())
             status.update(
@@ -252,25 +304,25 @@ class ChatApp(App):
             build_btn.disabled = False
 
 
-    async def on_input_submitted(self, event: Input.Submitted):
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle user input submission."""
-        user_message = event.value.strip()
+        user_message: str = event.value.strip()
         if not user_message or self.querying:
             return
         self.querying = True
 
         # Disable input while processing
-        input_widget = self.query_one("#input", Input)
+        input_widget: Input = self.query_one("#input", Input)
         input_widget.disabled = True
         input_widget.placeholder = "Processing... Please wait"
 
-        chat = self.query_one("#chat_container", VerticalScroll)
+        chat: VerticalScroll = self.query_one("#chat_container", VerticalScroll)
         chat.mount(Message("You", user_message))
         event.input.value = ""
         await self.perform_llm_query(user_message, chat)
 
 
-    async def perform_llm_query(self, prompt, chat):
+    async def perform_llm_query(self, prompt, chat) -> None:
         # Check if RAG system is properly initialized
         if self.rag is None or self.qa_chain is None:
             chat.mount(Message("System", "Error: RAG system not initialized. Please restart the application."))
@@ -280,7 +332,7 @@ class ChatApp(App):
 
         torch.cuda.empty_cache()
         try:
-            answer = await asyncio.to_thread(
+            answer: str = await asyncio.to_thread(
                 self.rag.perform_rag_query, self.qa_chain, prompt
             )
             chat.mount(Message("LLM", answer))
@@ -290,27 +342,22 @@ class ChatApp(App):
         self.querying = False
         self.re_enable_input()
 
-        def scroll_to_end():
+        def scroll_to_end() -> None:
             chat.scroll_y = chat.virtual_size.height
 
         self.call_after_refresh(scroll_to_end)
 
 
-    def re_enable_input(self):
+    def re_enable_input(self) -> None:
         """Re-enable the input field after processing."""
-        input_widget = self.query_one("#input", Input)
+        input_widget: Input = self.query_one("#input", Input)
         input_widget.disabled = False
         input_widget.placeholder = "Type your message and press Enter..."
         input_widget.value = ""
 
 
-    def on_unmount(self):
+    def on_unmount(self) -> None:
         """Clean up memory when the app is closed."""
-        self.cleanup_memory()
-
-
-    def cleanup_memory(self):
-        """Clean up GPU memory and Python objects."""
         try:
             # Clear RAG components
             if hasattr(self, 'rag') and self.rag is not None:
@@ -329,7 +376,6 @@ class ChatApp(App):
                 torch.cuda.synchronize()
 
             # Force garbage collection
-            import gc
             gc.collect()
 
             self.console.log("Memory cleaned up successfully.")
@@ -344,11 +390,11 @@ class ChatApp(App):
         )
 
 
-    def action_toggle_settings(self):
+    def action_toggle_settings(self) -> None:
         """Keyboard shortcut: show/hide setup (data folder + build)."""
         if getattr(self, 'querying', False):
             return
-        setup = self.query_one("#setup", Static)
+        setup: Static = self.query_one("#setup", Static)
         self._toggle_setup(not setup.display)
 
 
