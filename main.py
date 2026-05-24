@@ -170,8 +170,6 @@ class ChatApp(App):
 
         try:
             def _load():
-                # Some libraries expect an event loop to exist on the current
-                # thread (Python 3.11+ doesn't provide one automatically).
                 loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
                 try:
                     asyncio.set_event_loop(loop)
