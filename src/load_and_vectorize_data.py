@@ -4,6 +4,7 @@ import numpy as np
 from langchain_milvus import Milvus
 from typing import Any
 from langchain_huggingface import HuggingFaceEmbeddings
+import logging
 
 
 class LoadAndVectorizeData:
@@ -33,11 +34,11 @@ class LoadAndVectorizeData:
         loader: Any = DirectoryLoader(
             self.data_path,
             glob="**/*.md",
-            show_progress=True,
+            show_progress=False,
         )
         docs: list = loader.load()
 
-        print(f"loaded {len(docs)} documents")
+        logging.info(f"loaded {len(docs)} documents")
 
         return docs
 
@@ -55,7 +56,7 @@ class LoadAndVectorizeData:
         loader: Any = PyPDFDirectoryLoader(path=self.data_path)
         docs: list = loader.load()
 
-        print(f"loaded {len(docs)} documents")
+        logging.info(f"loaded {len(docs)} documents")
         # DEBUG: Print the first 300 characters of each document
         # for doc in docs:
         #     print(f"source: {doc.metadata['source']}")
@@ -75,7 +76,7 @@ class LoadAndVectorizeData:
         """
         chunk_size: int = 512
         chunk_overlap: float = np.round(chunk_size * 0.1, 0)
-        print(f"Chunk size: {chunk_size}, Chunk overlap: {chunk_overlap}")
+        logging.info(f"Chunk size: {chunk_size}, Chunk overlap: {chunk_overlap}")
 
         # Define the splitter
         text_splitter: Any = RecursiveCharacterTextSplitter(
@@ -85,7 +86,7 @@ class LoadAndVectorizeData:
 
         # Split the documents into smaller chunks
         chunks: list = text_splitter.split_documents(docs)
-        print(f"{len(docs)} docs split into {len(chunks)} child documents.")
+        logging.info(f"{len(docs)} docs split into {len(chunks)} child documents.")
 
         return chunks
 
@@ -107,7 +108,7 @@ class LoadAndVectorizeData:
         Args:
             dict_list (list): List of dictionaries containing document chunks and metadata.
         """
-        print("Saving to Milvus...")
+        logging.info("Saving to Milvus...")
 
         # Initialize LangChain Milvus vectorstore
         Milvus.from_documents(
@@ -122,5 +123,4 @@ class LoadAndVectorizeData:
             drop_old=True,
         )
 
-        print(f"Inserted {len(dict_list)} vectors into Milvus.")
-
+        logging.info(f"Inserted {len(dict_list)} vectors into Milvus.")

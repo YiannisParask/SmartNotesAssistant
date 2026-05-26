@@ -13,6 +13,7 @@ import asyncio
 from rich.markup import escape
 import traceback
 import gc
+import logging
 
 
 # Constants
@@ -110,6 +111,13 @@ class ChatApp(App):
         """ `Textual` method. Initialize the RAG system and set up the UI based
         on whether the MilvusLiteDB file exists.
         """
+        # Configure logging
+        logging.basicConfig(
+            filename="assistant.log",
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+        )
+
         self.querying = False
         self.rag = None
         self.qa_chain = None
@@ -166,7 +174,7 @@ class ChatApp(App):
         chat.display = False
         chat_input.display = False
 
-        self.console.log("Loading models and vector store (this may take a minute)...")
+        logging.info("Loading models and vector store (this may take a minute)...")
 
         try:
             def _load():
@@ -196,10 +204,10 @@ class ChatApp(App):
 
             self.querying = False
             chat.mount(Message("System", "Welcome! Type your question and press Enter."))
-            self.console.log("RAG system initialized successfully!")
+            logging.info("RAG system initialized successfully!")
 
         except Exception as e:
-            self.console.log(f"Error initializing RAG system: {e}")
+            logging.error(f"Error initializing RAG system: {e}")
             self.rag = None
             self.qa_chain = None
             self.querying = True  # Disable querying if initialization failed
@@ -293,7 +301,7 @@ class ChatApp(App):
             self._toggle_setup(False)
             await self.initialize_rag()
         except Exception as e:
-            self.console.log(traceback.format_exc())
+            logging.error(traceback.format_exc())
             status.update(
                 f"[red]Failed to build index:[/red] {escape(str(e))}"
             )
@@ -376,9 +384,9 @@ class ChatApp(App):
             # Force garbage collection
             gc.collect()
 
-            self.console.log("Memory cleaned up successfully.")
+            logging.info("Memory cleaned up successfully.")
         except Exception as e:
-            self.console.log(f"Error during cleanup: {e}")
+            logging.error(f"Error during cleanup: {e}")
 
 
     def action_toggle_dark(self) -> None:
