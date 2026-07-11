@@ -4,6 +4,7 @@ from pydantic_ai.models.ollama import OllamaModel
 from typing import Any
 from pydantic import BaseModel
 from pydantic_ai import Agent, AgentRunResult, RunContext
+from pydantic_ai.providers.ollama import OllamaProvider
 
 
 class RagDeps(BaseModel):
@@ -77,7 +78,8 @@ class RagSearch:
         Returns:
             None
         """
-        model = OllamaModel(model_name=model_name)
+        provider = OllamaProvider(base_url="http://localhost:11434/v1")
+        model = OllamaModel(model_name=model_name, provider=provider)
         self.agent = Agent(
             model=model,
             deps_type=RagDeps,
@@ -108,4 +110,4 @@ class RagSearch:
 
         deps = RagDeps(retriever=retriever)
         result: AgentRunResult[str] = await self.agent.run(query, deps=deps)
-        return result.data
+        return result.output

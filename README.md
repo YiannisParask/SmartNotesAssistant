@@ -6,6 +6,23 @@ User Interface) app that runs locally. Through a user-friendly interface
 `Chroma` as the backend) to store your notes and interact with an LLM, which
 will search your notes to provide answers.
 
+## Usage
+
+Create a Virtual Environoment and activate it:
+```python
+uv venv .venv
+source .venv/bin/activate
+```
+
+Install Ollama:
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+And download the `qwen2.5:1.5b` model:
+```bash
+ollama pull qwen2.5:1.5b
+```
 ## Acknowledgements
 
 Inspirations:
