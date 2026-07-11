@@ -1,9 +1,19 @@
-from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_milvus import Milvus
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
+from pydantic_ai.models.ollama import OllamaModel
 from typing import Any
-from transformers.pipelines import pipeline
+from pydantic import BaseModel
+from pydantic_ai import Agent, AgentRunResult, RunContext
+
+
+class RagDeps(BaseModel):
+    """Dependencies injected into the Agent at runtime.
+
+    Includes the vector store retriever.
+    """
+    class Config:
+        arbitrary_types_allowed = True
+    retriever: Any
 
 
 class RagSearch:
@@ -18,7 +28,7 @@ class RagSearch:
         self.collection_name: str = collection_name
         self.milvus_uri: str = milvus_uri
         self.device: Any = device
-        self.text_generator: Any = None
+        self.agent: Agent | None = None
         self.embeddings_generator: Any = None
 
 
@@ -28,13 +38,10 @@ class RagSearch:
         Returns:
             HuggingFaceEmbeddings: An instance of HuggingFaceEmbeddings with the specified model.
         """
-        if self.embeddings_generator is not None:
-            return self.embeddings_generator
-        else:
+        if self.embeddings_generator is None:
             self.embeddings_generator = HuggingFaceEmbeddings(
-                model_name=embed_model_name,
-            )
-            return self.embeddings_generator
+                model_name=embed_model_name)
+        return self.embeddings_generator
 
 
     def get_retriever(self) -> Any:
@@ -61,66 +68,44 @@ class RagSearch:
         return vectorstore.as_retriever(search_kwargs={"k": top_k})
 
 
-    def build_prompt_template(self) -> PromptTemplate:
-        """Create a PromptTemplate for RAG QA."""
-        template = (
-            "First, check if the provided Context is relevant to the user's question.\n"
-            "Second, only if the provided Context is strongly relevant, answer the question using the Context.\n"
-            "Otherwise, if the Context is not strongly relevant, answer the question without using the Context.\n"
-            "Be clear and concise.\n\n"
-            "### Context:\n{context}\n\n"
-            "### Question:\n{question}\n\n"
-            "### Answer:"
-        )
-        return PromptTemplate(input_variables=["context", "question"], template=template)
-
-
-    def get_hg_llm(self, llm_model_name: str) -> Any:
-        """Instantiate the HuggingFace LLM wrapper."""
-        if self.text_generator is not None:
-            return self.text_generator
-        else:
-            llm_pipeline = pipeline(task="text-generation", model=llm_model_name)
-            self.text_generator = HuggingFacePipeline(pipeline=llm_pipeline)
-            return self.text_generator
-
-
-    def get_qa_chain(self, retriever, prompt: PromptTemplate) -> RetrievalQA:
-        """Build and return a RetrievalQA chain with custom prompt.
+    def setup_agent(self, model_name: str = "qwen2.5:1.5b") -> None:
+        """Initialize the Pydantic AI agent and define its tools.
 
         Args:
-            llm (Any): The language model to use (HuggingFace or VLLM).
-            retriever: The retriever object for fetching relevant documents.
-            prompt (PromptTemplate): The prompt template to use for the chain.
+            model_name (str): Name of the Ollama model to use.
 
         Returns:
-            RetrievalQA: A RetrievalQA chain configured with the provided LLM, retriever, and prompt.
+            None
         """
-        return RetrievalQA.from_chain_type(
-            llm=self.text_generator,
-            chain_type="stuff",
-            retriever=retriever,
-            return_source_documents=True,
-            chain_type_kwargs={"prompt": prompt},
+        model = OllamaModel(model_name=model_name)
+        self.agent = Agent(
+            model=model,
+            deps_type=RagDeps,
+            system_prompt=(
+                 "You are a helpful assistant. Answer questions by retrieving relevant "
+                    "context using the retrieve_notes tool. Be clear and concise."
+            )
         )
 
+        @self.agent.tool
+        def retrieve_notes(ctx: RunContext[RagDeps], query: str) -> str:
+            docs = ctx.deps.retriever.invoke(query)
+            return "\n\n".join([doc.page_content for doc in docs])
 
-    def perform_rag_query(self, chain: RetrievalQA, query: str) -> str:
-        """Run the RetrievalQA chain on the given query.
+
+    async def perform_rag_query(self, retriever: Any, query: str) -> str:
+        """Perform a RAG query using the agent and the provided retriever.
 
         Args:
-            chain (RetrievalQA): The RetrievalQA chain to use.
-            query (str): The user's query string.
+            retriever (Any): The retriever object to use for fetching relevant documents.
+            query (str): The query string to search for.
 
         Returns:
-            str: The answer string.
+            str: The response generated by the agent based on the retrieved documents.
         """
-        result = chain.invoke({"query": query})
-        answer_full = result["result"].strip()
+        if self.agent is None:
+            raise ValueError("Agent is not initialized. Call setup_agent() first.")
 
-        # Extract only the part after '### Answer:' if present
-        answer = answer_full
-        if "### Answer:" in answer_full:
-            answer = answer_full.split("### Answer:", 1)[-1].strip()
-
-        return answer
+        deps = RagDeps(retriever=retriever)
+        result: AgentRunResult[str] = await self.agent.run(query, deps=deps)
+        return result.data

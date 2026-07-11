@@ -120,7 +120,7 @@ class ChatApp(App):
 
         self.querying = False
         self.rag = None
-        self.qa_chain = None
+        self.retriever = None
 
         # Show setup if the Milvus Lite DB file isn't present yet.
         needs_setup: bool = not os.path.exists(MILVUS_URI)
@@ -189,10 +189,8 @@ class ChatApp(App):
                     )
                     # Setup embeddings, retriever, LLM, prompt, chain
                     self.rag.get_embeddings_model(EMBED_MODEL)
-                    retriever: Any = self.rag.get_retriever()
-                    prompt: str = self.rag.build_prompt_template()
-                    self.rag.get_hg_llm(MODEL_NAME)
-                    self.qa_chain = self.rag.get_qa_chain(retriever, prompt)
+                    self.retriever = self.rag.get_retriever()
+                    self.rag.setup_agent(model_name="qwen2.5:1.5b")
                 finally:
                     try:
                         loop.close()
@@ -209,7 +207,7 @@ class ChatApp(App):
         except Exception as e:
             logging.error(f"Error initializing RAG system: {e}")
             self.rag = None
-            self.qa_chain = None
+            self.retriever = None
             self.querying = True  # Disable querying if initialization failed
             chat.mount(Message("System", f"Error: Failed to initialize RAG system. {e}"))
 
@@ -330,7 +328,7 @@ class ChatApp(App):
 
     async def perform_llm_query(self, prompt, chat) -> None:
         # Check if RAG system is properly initialized
-        if self.rag is None or self.qa_chain is None:
+        if self.rag is None or self.retriever is None or self.rag.agent is None:
             chat.mount(Message("System", "Error: RAG system not initialized. Please restart the application."))
             self.querying = False
             self.re_enable_input()
@@ -338,9 +336,7 @@ class ChatApp(App):
 
         torch.cuda.empty_cache()
         try:
-            answer: str = await asyncio.to_thread(
-                self.rag.perform_rag_query, self.qa_chain, prompt
-            )
+            answer: str = await self.rag.perform_rag_query(self.retriever, prompt)
             chat.mount(Message("LLM", answer))
         except Exception as e:
             chat.mount(Message("System", f"Error processing query: {escape(str(e))}"))
