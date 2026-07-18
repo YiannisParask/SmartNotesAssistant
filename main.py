@@ -22,6 +22,7 @@ EMBED_MODEL = "sentence-transformers/all-mpnet-base-v2"
 COLLECTION_NAME = "MilvusDocs"
 CWD: str = os.getcwd()
 MILVUS_URI: str = os.path.join(CWD, "data", "local_milvus_database.db")
+LAST_PATH_FILE: str = os.path.join(CWD, "data", "last_path.txt")
 DEVICE: Any = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -35,6 +36,7 @@ class ChatApp(App[None]):
     ]
 
     milvus_uri: str = MILVUS_URI
+
 
     async def on_mount(self) -> None:
         """ `Textual` method. Initialize the RAG system and set up the UI based
@@ -59,6 +61,7 @@ class ChatApp(App[None]):
             await self.push_screen(SetupScreen())
         else:
             await self.push_screen(ChatScreen())
+
 
     async def initialize_rag(self) -> None:
         """ Initialize the RAG pipeline components. This should only be called
@@ -120,6 +123,7 @@ class ChatApp(App[None]):
             chat_input.display = True
             self.set_focus(chat_input)
 
+
     def build_index(self, data_dir: str) -> None:
         """ Build the Milvus Lite index from the specified data directory.
             Args:
@@ -152,28 +156,62 @@ class ChatApp(App[None]):
             finally:
                 asyncio.set_event_loop(None)
 
+
+    def get_last_data_path(self) -> str:
+        """Get the last used data folder path from a file, if it exists.
+
+        Returns:
+            str: The last used data folder path.
+        """
+        if os.path.exists(LAST_PATH_FILE):
+            try:
+                with open(LAST_PATH_FILE, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+            except Exception as e:
+                logging.error(f"Error reading last path file: {e}")
+                pass
+        return ""
+
+
+    def save_last_data_path(self, path: str) -> None:
+        """Save the last used data folder path to a file.
+
+        Args:
+            path (str): The data folder path to save.
+        """
+        os.makedirs(os.path.dirname(LAST_PATH_FILE), exist_ok=True)
+        try:
+            with open(LAST_PATH_FILE, "w", encoding="utf-8") as f:
+                f.write(path)
+        except Exception as e:
+            logging.error(f"Error saving last path file: {e}")
+
+
+    def reset_rag(self) -> None:
+        """Reset and release RAG and Milvus connections."""
+        self.rag = None
+        self.retriever = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
+    def delete_db(self) -> None:
+        """Close connections and delete the Milvus Lite database file."""
+        self.reset_rag()
+        if os.path.exists(self.milvus_uri):
+            try:
+                os.remove(self.milvus_uri)
+                logging.info(f"Deleted Milvus Lite database file: {self.milvus_uri}")
+            except Exception as e:
+                logging.error(f"Error deleting Milvus Lite database file: {e}")
+                raise e
+
+
     def on_unmount(self) -> None:
         """Clean up memory when the app is closed."""
         try:
-            # Clear RAG components
-            if hasattr(self, 'rag') and self.rag is not None:
-                if hasattr(self.rag, 'text_generator') and self.rag.text_generator is not None:
-                    self.rag.text_generator = None
-                if hasattr(self.rag, 'embeddings_generator') and self.rag.embeddings_generator is not None:
-                    self.rag.embeddings_generator = None
-                self.rag = None
-
-            if hasattr(self, 'qa_chain'):
-                self.qa_chain = None
-
-            # Clear CUDA cache if available
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-
-            # Force garbage collection
-            gc.collect()
-
+            self.reset_rag()
             logging.info("Memory cleaned up successfully.")
         except Exception as e:
             logging.error(f"Error during cleanup: {e}")

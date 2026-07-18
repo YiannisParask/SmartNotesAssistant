@@ -6,7 +6,7 @@ import traceback
 from typing import TYPE_CHECKING
 from rich.markup import escape
 from textual.screen import Screen
-from textual.widgets import Input, Static, Button
+from textual.widgets import Input, Static, Button, Checkbox
 from textual.containers import Horizontal
 from textual.app import ComposeResult
 
@@ -56,8 +56,11 @@ class SetupScreen(Screen[None]):
         )
         yield setup
 
-        # Controls inside setup
-        yield Input(placeholder="Enter your data folder path...", id="data_path")
+        # Pre-fill the data path input with a default value if it exists
+        app = self.app  # type: ignore[assignment]
+        last_path: str = app.get_last_data_path()
+        yield Input(value=last_path, placeholder="Enter data folder path...", id="data_path")
+        yield Checkbox("Clean build (recreate database file)", value= True, id="clean_build")
 
         # Buttons row (Build + Back)
         yield Horizontal(
@@ -120,7 +123,21 @@ class SetupScreen(Screen[None]):
             "[yellow]Building index (loading + vectorizing)... This may take a while.[/yellow]"
         )
 
+        clean_build: bool = self.query_one("#clean_build", Checkbox).value
+
         app: ChatApp = self.app  # type: ignore[assignment]
+        if clean_build:
+            try:
+                app.delete_db()
+            except Exception as e:
+                logging.error(traceback.format_exc())
+                status.update(
+                    f"[red]Failed to delete database:[/red] {escape(str(e))}"
+                )
+                return
+
+        app.save_last_data_path(path)
+
         try:
             await asyncio.to_thread(app.build_index, path)
             status.update(
